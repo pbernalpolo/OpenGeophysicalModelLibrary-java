@@ -1,0 +1,3 @@
+[submodule "lib/OpenNumericalLibrary-java"]
+	path = lib/OpenNumericalLibrary-java
+	url = https://github.com/pbernalpolo/OpenNumericalLibrary-java.git
