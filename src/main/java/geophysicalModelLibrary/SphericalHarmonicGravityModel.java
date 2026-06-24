@@ -102,6 +102,25 @@ public abstract class SphericalHarmonicGravityModel
 	private final double[] sinMLambda;
 
 	/**
+	 * Coefficients of the colatitude-derivative recurrence, stored as a triangular array.
+	 * {@code kappa[l][m] = sqrt( (2l+1)/(2l-1) (l-m)(l+m) )} appears in
+	 * {@code sin(theta) dP_l^m/dtheta = l cos(theta) P_l^m - kappa[l][m] P_{l-1}^m}.
+	 * It depends only on {@code (l,m)}, so it is precomputed once instead of recomputing the square root on every evaluation.
+	 */
+	private final double[][] kappa;
+
+	/**
+	 * Fully normalized even zonal harmonic coefficients of the GRS80 reference ellipsoid, indexed by degree
+	 * (only degrees 2, 4, 6, 8 are non-zero). Used to remove the normal field when computing the geoid undulation.
+	 */
+	private final double[] referenceEvenZonal;
+
+	/**
+	 * Radius (distance to the origin) of the last position passed to {@link #setPosition(Vector3)}, in [m].
+	 */
+	private double radius;
+
+	/**
 	 * Gravitational potential at the last {@link #setPosition(Vector3)} call.
 	 */
 	private double potential;
@@ -114,6 +133,256 @@ public abstract class SphericalHarmonicGravityModel
 
 
 
+	////////////////////////////////////////////////////////////////
+	/// PUBLIC METHODS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Returns the gravitational parameter  GM  in [m^3/s^2].
+	 *
+	 * @return	gravitational parameter  GM  in [m^3/s^2].
+	 */
+	public double gravitationalParameter()
+	{
+		return this.gravitationalParameter;
+	}
+
+
+	/**
+	 * Returns the reference radius  a  in [m].
+	 *
+	 * @return	reference radius  a  in [m].
+	 */
+	public double referenceRadius()
+	{
+		return this.referenceRadius;
+	}
+
+
+	/**
+	 * Returns the maximum degree  l  loaded into this model.
+	 *
+	 * @return	maximum degree  l  loaded into this model.
+	 */
+	public int maximumDegree()
+	{
+		return this.maximumDegree;
+	}
+
+
+	/**
+	 * Returns the model name read from the {@code .gfc} header.
+	 *
+	 * @return	model name read from the {@code .gfc} header.
+	 */
+	public String modelName()
+	{
+		return this.modelName;
+	}
+
+
+	/**
+	 * Returns the tide system read from the {@code .gfc} header.
+	 *
+	 * @return	tide system read from the {@code .gfc} header.
+	 */
+	public String tideSystem()
+	{
+		return this.tideSystem;
+	}
+
+
+	/**
+	 * Returns the fully normalized cosine Stokes coefficient  C_l^m .
+	 *
+	 * @param l		degree in the range l = 0 , 1 , ... , {@link #maximumDegree()}.
+	 * @param m		order in the range m = 0 , 1 , ... , l.
+	 * @return	fully normalized cosine Stokes coefficient  C_l^m .
+	 */
+	public double normalizedC( int l , int m )
+	{
+		return this.C[l][m];
+	}
+
+
+	/**
+	 * Returns the fully normalized sine Stokes coefficient  S_l^m .
+	 *
+	 * @param l		degree in the range l = 0 , 1 , ... , {@link #maximumDegree()}.
+	 * @param m		order in the range m = 0 , 1 , ... , l.
+	 * @return	fully normalized sine Stokes coefficient  S_l^m .
+	 */
+	public double normalizedS( int l , int m )
+	{
+		return this.S[l][m];
+	}
+
+
+	/**
+	 * Sets the position at which the gravitational potential and the gravity vector are evaluated.
+	 * <p>
+	 * The position is expressed in the Earth-fixed Cartesian frame in which the model coefficients are defined.
+	 * After calling this method, the results are available through {@link #getGravitationalPotential()} and {@link #getGravityVector()}.
+	 * <p>
+	 * The gradient is evaluated in spherical coordinates and is therefore singular exactly at the geographic poles
+	 * (where  sin( theta ) = 0 ). At those points the horizontal contributions are dropped and only the radial term is kept.
+	 *
+	 * @param position		evaluation point in the Earth-fixed Cartesian frame, in [m].
+	 * @throws IllegalArgumentException	if the position is the origin.
+	 */
+	public void setPosition( Vector3 position )
+	{
+		double x = position.x();
+		double y = position.y();
+		double z = position.z();
+		double r = position.norm();
+		if( r == 0.0 ) {
+			throw new IllegalArgumentException( "The position must not be the origin." );
+		}
+		this.radius = r;
+		double rho = Math.hypot( x , y );
+
+		// Direction cosines of the colatitude and longitude.
+		double cosTheta = z / r;
+		if( cosTheta > 1.0 ) {
+			cosTheta = 1.0;
+		} else if( cosTheta < -1.0 ) {
+			cosTheta = -1.0;
+		}
+		double sinTheta = rho / r;
+		double cosLambda = ( rho > 0.0 ) ? x / rho : 1.0;
+		double sinLambda = ( rho > 0.0 ) ? y / rho : 0.0;
+
+		// Evaluate the associated Legendre functions at  cos( theta ) .
+		this.legendre.evaluate( cosTheta );
+
+		// Build  cos( m lambda )  and  sin( m lambda )  by recurrence.
+		this.cosMLambda[0] = 1.0;
+		this.sinMLambda[0] = 0.0;
+		for( int m=1; m<=this.maximumDegree; m++ ) {
+			this.cosMLambda[m] = cosLambda * this.cosMLambda[m-1] - sinLambda * this.sinMLambda[m-1];
+			this.sinMLambda[m] = sinLambda * this.cosMLambda[m-1] + cosLambda * this.sinMLambda[m-1];
+		}
+
+		// Accumulate the potential and the spherical components of its gradient.
+		// sumV          contributes to  V = ( GM / r ) sumV .
+		// sumRadial     contributes to  dV/dr = -( GM / r^2 ) sumRadial .
+		// sumColatitude contributes to  dV/dtheta = ( GM / r ) sumColatitude / sin( theta ) .
+		// sumLongitude  contributes to  dV/dlambda = ( GM / r ) sumLongitude .
+		double sumV = 0.0;
+		double sumRadial = 0.0;
+		double sumColatitude = 0.0;
+		double sumLongitude = 0.0;
+
+		// Degree 0 term ( P_0^0 = 1 , no longitude or colatitude dependence ): contributes only to the potential
+		// and to its radial derivative. Handling it here keeps the main loop free of the  l >= 1  branch.
+		double pBar00 = this.geodeticNormalizationFactor[0] * this.legendre.getPolynomialValue( 0 , 0 );
+		sumV += pBar00 * this.C[0][0];
+		sumRadial += pBar00 * this.C[0][0];
+
+		double aOverR = this.referenceRadius / r;
+		double u = aOverR;   // ( a / r )^l with l = 1.
+		for( int l=1; l<=this.maximumDegree; l++ ) {
+			double[] Cl = this.C[l];
+			double[] Sl = this.S[l];
+			double[] kappaL = this.kappa[l];
+			for( int m=0; m<=l; m++ ) {
+				double factor = this.geodeticNormalizationFactor[m];
+				double pBar = factor * this.legendre.getPolynomialValue( l , m );
+				double cosPart = Cl[m] * this.cosMLambda[m] + Sl[m] * this.sinMLambda[m];
+				double sinPart = Sl[m] * this.cosMLambda[m] - Cl[m] * this.sinMLambda[m];
+				sumV += u * pBar * cosPart;
+				sumRadial += ( l + 1 ) * u * pBar * cosPart;
+				sumLongitude += u * pBar * m * sinPart;
+				// Colatitude derivative through the same-order, adjacent-degree recurrence:
+				//   sin( theta ) dP_l^m/dtheta = l cos( theta ) P_l^m - kappa[l][m] P_{l-1}^m .
+				// At the sectoral term ( m == l ) the lower-degree value does not exist, but kappa[l][l] = 0 makes it irrelevant.
+				double pBarLowerDegree = ( m < l ) ? factor * this.legendre.getPolynomialValue( l-1 , m ) : 0.0;
+				double sinThetaTimesDPBar = l * cosTheta * pBar - kappaL[m] * pBarLowerDegree;
+				sumColatitude += u * sinThetaTimesDPBar * cosPart;
+			}
+			u *= aOverR;
+		}
+
+		// Gravity vector in spherical components  ( g_r , g_theta , g_lambda ) .
+		double prefactor = this.gravitationalParameter / ( r * r );
+		double gRadial = -prefactor * sumRadial;
+		double gColatitude = ( sinTheta > 0.0 ) ? prefactor * sumColatitude / sinTheta : 0.0;
+		double gLongitude = ( sinTheta > 0.0 ) ? prefactor * sumLongitude / sinTheta : 0.0;
+
+		// Rotate the spherical components into the Earth-fixed Cartesian frame and store them in the reused vector.
+		this.gravityVector.setX( gRadial * sinTheta * cosLambda + gColatitude * cosTheta * cosLambda - gLongitude * sinLambda );
+		this.gravityVector.setY( gRadial * sinTheta * sinLambda + gColatitude * cosTheta * sinLambda + gLongitude * cosLambda );
+		this.gravityVector.setZ( gRadial * cosTheta - gColatitude * sinTheta );
+
+		this.potential = this.gravitationalParameter / r * sumV;
+	}
+
+
+	/**
+	 * Returns the gravitational potential  V  in [m^2/s^2] at the position set with {@link #setPosition(Vector3)}.
+	 *
+	 * @return	gravitational potential  V  in [m^2/s^2].
+	 */
+	public double getGravitationalPotential()
+	{
+		return this.potential;
+	}
+
+
+	/**
+	 * Returns the gravity vector in [m/s^2] at the position set with {@link #setPosition(Vector3)}.
+	 * <p>
+	 * The vector is the gradient of the gravitational potential (i.e. the Newtonian gravitational attraction)
+	 * expressed in the same Earth-fixed Cartesian frame as the position. It does not include the centrifugal term.
+	 * <p>
+	 * The same {@link Vector3} instance is returned on every call; its components are overwritten by {@link #setPosition(Vector3)}.
+	 *
+	 * @return	gravity vector in [m/s^2].
+	 */
+	public Vector3 getGravityVector()
+	{
+		return this.gravityVector;
+	}
+
+
+	/**
+	 * Returns the geoid undulation  N  in [m] at the position set with {@link #setPosition(Vector3)}.
+	 * <p>
+	 * The undulation is the height of the geoid above the GRS80 reference ellipsoid, computed from Bruns' formula
+	 * {@code N = T / gamma}, where  T  is the disturbing potential (the model potential with the degrees 0 and 1 and the
+	 * even zonal harmonics of the reference ellipsoid removed) and  gamma  is a representative normal gravity, taken here
+	 * as  GM / a^2 . When the position lies above the reference sphere this returns the height anomaly at that point.
+	 *
+	 * @return	geoid undulation  N  in [m].
+	 */
+	public double getGeoidUndulation()
+	{
+		double r = this.radius;
+		double aOverR = this.referenceRadius / r;
+		double u = aOverR * aOverR;   // ( a / r )^l with l = 2.
+		int maxRemovedZonal = Math.min( 8 , this.maximumDegree );
+		double sum = 0.0;
+		for( int l=2; l<=this.maximumDegree; l++ ) {
+			double[] Cl = this.C[l];
+			double[] Sl = this.S[l];
+			for( int m=0; m<=l; m++ ) {
+				double cBar = Cl[m];
+				if(  m == 0  &&  l <= maxRemovedZonal  &&  ( l & 1 ) == 0  ) {
+					cBar -= this.referenceEvenZonal[l];
+				}
+				double pBar = this.geodeticNormalizationFactor[m] * this.legendre.getPolynomialValue( l , m );
+				sum += u * pBar * ( cBar * this.cosMLambda[m] + Sl[m] * this.sinMLambda[m] );
+			}
+			u *= aOverR;
+		}
+		double disturbingPotential = this.gravitationalParameter / r * sum;
+		double normalGravity = this.gravitationalParameter / ( this.referenceRadius * this.referenceRadius );
+		return disturbingPotential / normalGravity;
+	}
+	
+	
+	
 	////////////////////////////////////////////////////////////////
 	/// PROTECTED CONSTRUCTORS
 	////////////////////////////////////////////////////////////////
@@ -229,217 +498,23 @@ public abstract class SphericalHarmonicGravityModel
 		this.cosMLambda = new double[ this.maximumDegree + 1 ];
 		this.sinMLambda = new double[ this.maximumDegree + 1 ];
 		this.gravityVector = Vector3.zero();
-	}
 
-
-
-	////////////////////////////////////////////////////////////////
-	/// PUBLIC METHODS
-	////////////////////////////////////////////////////////////////
-
-	/**
-	 * Returns the gravitational parameter  GM  in [m^3/s^2].
-	 *
-	 * @return	gravitational parameter  GM  in [m^3/s^2].
-	 */
-	public double gravitationalParameter()
-	{
-		return this.gravitationalParameter;
-	}
-
-
-	/**
-	 * Returns the reference radius  a  in [m].
-	 *
-	 * @return	reference radius  a  in [m].
-	 */
-	public double referenceRadius()
-	{
-		return this.referenceRadius;
-	}
-
-
-	/**
-	 * Returns the maximum degree  l  loaded into this model.
-	 *
-	 * @return	maximum degree  l  loaded into this model.
-	 */
-	public int maximumDegree()
-	{
-		return this.maximumDegree;
-	}
-
-
-	/**
-	 * Returns the model name read from the {@code .gfc} header.
-	 *
-	 * @return	model name read from the {@code .gfc} header.
-	 */
-	public String modelName()
-	{
-		return this.modelName;
-	}
-
-
-	/**
-	 * Returns the tide system read from the {@code .gfc} header.
-	 *
-	 * @return	tide system read from the {@code .gfc} header.
-	 */
-	public String tideSystem()
-	{
-		return this.tideSystem;
-	}
-
-
-	/**
-	 * Returns the fully normalized cosine Stokes coefficient  C_l^m .
-	 *
-	 * @param l		degree in the range l = 0 , 1 , ... , {@link #maximumDegree()}.
-	 * @param m		order in the range m = 0 , 1 , ... , l.
-	 * @return	fully normalized cosine Stokes coefficient  C_l^m .
-	 */
-	public double normalizedC( int l , int m )
-	{
-		return this.C[l][m];
-	}
-
-
-	/**
-	 * Returns the fully normalized sine Stokes coefficient  S_l^m .
-	 *
-	 * @param l		degree in the range l = 0 , 1 , ... , {@link #maximumDegree()}.
-	 * @param m		order in the range m = 0 , 1 , ... , l.
-	 * @return	fully normalized sine Stokes coefficient  S_l^m .
-	 */
-	public double normalizedS( int l , int m )
-	{
-		return this.S[l][m];
-	}
-
-
-	/**
-	 * Sets the position at which the gravitational potential and the gravity vector are evaluated.
-	 * <p>
-	 * The position is expressed in the Earth-fixed Cartesian frame in which the model coefficients are defined.
-	 * After calling this method, the results are available through {@link #getGravitationalPotential()} and {@link #getGravityVector()}.
-	 * <p>
-	 * The gradient is evaluated in spherical coordinates and is therefore singular exactly at the geographic poles
-	 * (where  sin( theta ) = 0 ). At those points the horizontal contributions are dropped and only the radial term is kept.
-	 *
-	 * @param position		evaluation point in the Earth-fixed Cartesian frame, in [m].
-	 * @throws IllegalArgumentException	if the position is the origin.
-	 */
-	public void setPosition( Vector3 position )
-	{
-		double x = position.x();
-		double y = position.y();
-		double z = position.z();
-		double r = position.norm();
-		if( r == 0.0 ) {
-			throw new IllegalArgumentException( "The position must not be the origin." );
-		}
-		double rho = Math.hypot( x , y );
-
-		// Direction cosines of the colatitude and longitude.
-		double cosTheta = z / r;
-		if( cosTheta > 1.0 ) {
-			cosTheta = 1.0;
-		} else if( cosTheta < -1.0 ) {
-			cosTheta = -1.0;
-		}
-		double sinTheta = rho / r;
-		double cosLambda = ( rho > 0.0 ) ? x / rho : 1.0;
-		double sinLambda = ( rho > 0.0 ) ? y / rho : 0.0;
-
-		// Evaluate the associated Legendre functions at  cos( theta ) .
-		this.legendre.evaluate( cosTheta );
-
-		// Build  cos( m lambda )  and  sin( m lambda )  by recurrence.
-		this.cosMLambda[0] = 1.0;
-		this.sinMLambda[0] = 0.0;
-		for( int m=1; m<=this.maximumDegree; m++ ) {
-			this.cosMLambda[m] = cosLambda * this.cosMLambda[m-1] - sinLambda * this.sinMLambda[m-1];
-			this.sinMLambda[m] = sinLambda * this.cosMLambda[m-1] + cosLambda * this.sinMLambda[m-1];
-		}
-
-		// Accumulate the potential and the spherical components of its gradient.
-		// sumV          contributes to  V = ( GM / r ) sumV .
-		// sumRadial     contributes to  dV/dr = -( GM / r^2 ) sumRadial .
-		// sumColatitude contributes to  dV/dtheta = ( GM / r ) sumColatitude / sin( theta ) .
-		// sumLongitude  contributes to  dV/dlambda = ( GM / r ) sumLongitude .
-		double sumV = 0.0;
-		double sumRadial = 0.0;
-		double sumColatitude = 0.0;
-		double sumLongitude = 0.0;
-		double aOverR = this.referenceRadius / r;
-		double u = 1.0;   // ( a / r )^l with l = 0.
-		for( int l=0; l<=this.maximumDegree; l++ ) {
-			double[] Cl = this.C[l];
-			double[] Sl = this.S[l];
+		// Precompute the colatitude-derivative recurrence coefficients (they do not depend on the evaluation point).
+		this.kappa = new double[ this.maximumDegree + 1 ][];
+		this.kappa[0] = new double[ 0 ];
+		for( int l=1; l<=this.maximumDegree; l++ ) {
+			this.kappa[l] = new double[ l + 1 ];
+			double ratio = ( 2.0 * l + 1.0 ) / ( 2.0 * l - 1.0 );
 			for( int m=0; m<=l; m++ ) {
-				double factor = this.geodeticNormalizationFactor[m];
-				double pBar = factor * this.legendre.getPolynomialValue( l , m );
-				double cosPart = Cl[m] * this.cosMLambda[m] + Sl[m] * this.sinMLambda[m];
-				double sinPart = Sl[m] * this.cosMLambda[m] - Cl[m] * this.sinMLambda[m];
-				sumV += u * pBar * cosPart;
-				sumRadial += ( l + 1 ) * u * pBar * cosPart;
-				sumLongitude += u * pBar * m * sinPart;
-				// Colatitude derivative through the same-order, adjacent-degree recurrence:
-				//   sin( theta ) dP_l^m/dtheta = l cos( theta ) P_l^m - sqrt( (2l+1)/(2l-1) (l-m)(l+m) ) P_{l-1}^m .
-				if( l >= 1 ) {
-					double pBarLowerDegree = ( l - 1 >= m ) ? factor * this.legendre.getPolynomialValue( l-1 , m ) : 0.0;
-					double kappa = Math.sqrt( ( ( 2.0 * l + 1.0 ) / ( 2.0 * l - 1.0 ) ) * ( l - m ) * ( l + m ) );
-					double sinThetaTimesDPBar = l * cosTheta * pBar - kappa * pBarLowerDegree;
-					sumColatitude += u * sinThetaTimesDPBar * cosPart;
-				}
+				this.kappa[l][m] = Math.sqrt( ratio * ( l - m ) * ( l + m ) );
 			}
-			u *= aOverR;
 		}
 
-		// Gravity vector in spherical components  ( g_r , g_theta , g_lambda ) .
-		double prefactor = this.gravitationalParameter / ( r * r );
-		double gRadial = -prefactor * sumRadial;
-		double gColatitude = ( sinTheta > 0.0 ) ? prefactor * sumColatitude / sinTheta : 0.0;
-		double gLongitude = ( sinTheta > 0.0 ) ? prefactor * sumLongitude / sinTheta : 0.0;
-
-		// Rotate the spherical components into the Earth-fixed Cartesian frame and store them in the reused vector.
-		this.gravityVector.setX( gRadial * sinTheta * cosLambda + gColatitude * cosTheta * cosLambda - gLongitude * sinLambda );
-		this.gravityVector.setY( gRadial * sinTheta * sinLambda + gColatitude * cosTheta * sinLambda + gLongitude * cosLambda );
-		this.gravityVector.setZ( gRadial * cosTheta - gColatitude * sinTheta );
-
-		this.potential = this.gravitationalParameter / r * sumV;
+		// Even zonal harmonics of the reference ellipsoid, used to remove the normal field for the geoid undulation.
+		this.referenceEvenZonal = referenceEllipsoidEvenZonalCoefficients();
 	}
-
-
-	/**
-	 * Returns the gravitational potential  V  in [m^2/s^2] at the position set with {@link #setPosition(Vector3)}.
-	 *
-	 * @return	gravitational potential  V  in [m^2/s^2].
-	 */
-	public double getGravitationalPotential()
-	{
-		return this.potential;
-	}
-
-
-	/**
-	 * Returns the gravity vector in [m/s^2] at the position set with {@link #setPosition(Vector3)}.
-	 * <p>
-	 * The vector is the gradient of the gravitational potential (i.e. the Newtonian gravitational attraction)
-	 * expressed in the same Earth-fixed Cartesian frame as the position. It does not include the centrifugal term.
-	 * <p>
-	 * The same {@link Vector3} instance is returned on every call; its components are overwritten by {@link #setPosition(Vector3)}.
-	 *
-	 * @return	gravity vector in [m/s^2].
-	 */
-	public Vector3 getGravityVector()
-	{
-		return this.gravityVector;
-	}
-
-
-
+	
+	
 	////////////////////////////////////////////////////////////////
 	/// PRIVATE METHODS
 	////////////////////////////////////////////////////////////////
@@ -456,6 +531,32 @@ public abstract class SphericalHarmonicGravityModel
 	private static double parseFortranDouble( String value )
 	{
 		return Double.parseDouble( value.replace( 'D' , 'e' ).replace( 'd' , 'e' ) );
+	}
+
+
+	/**
+	 * Returns the fully normalized even zonal harmonic coefficients of the GRS80 reference ellipsoid, indexed by degree.
+	 * <p>
+	 * They are obtained from the closed-form expression of the even zonal harmonics  J_{2n}  of an equipotential ellipsoid
+	 * (Heiskanen and Moritz, "Physical Geodesy", eq. 2-92), and converted to the geodetic fully normalized convention with
+	 * {@code C_{l,0} = -J_l / sqrt( 2 l + 1 )}.
+	 *
+	 * @return	array indexed by degree; only degrees 2, 4, 6, 8 are non-zero.
+	 */
+	private static double[] referenceEllipsoidEvenZonalCoefficients()
+	{
+		double firstEccentricitySquared = 0.00669438002290;   // GRS80
+		double dynamicFormFactor = 0.00108263;                 // GRS80  J2
+		double[] coefficients = new double[ 9 ];
+		for( int n=1; n<=4; n++ ) {
+			int degree = 2 * n;
+			double sign = ( n % 2 == 0 ) ? -1.0 : 1.0;   // (-1)^{n+1}
+			double eccentricityPower = Math.pow( firstEccentricitySquared , n );
+			double j = sign * ( 3.0 * eccentricityPower ) / ( ( 2.0 * n + 1.0 ) * ( 2.0 * n + 3.0 ) )
+					* ( 1.0 - n + 5.0 * n * dynamicFormFactor / firstEccentricitySquared );
+			coefficients[ degree ] = -j / Math.sqrt( 2.0 * degree + 1.0 );
+		}
+		return coefficients;
 	}
 
 }
