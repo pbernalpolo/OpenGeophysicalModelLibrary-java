@@ -237,12 +237,9 @@ public abstract class SphericalHarmonicGravityModel
 		double sinLambda = ( rho > 0.0 ) ? y / rho : 0.0;
 
 		// Evaluate the spherical harmonics and their colatitude derivatives at the current direction.
-		double theta = Math.acos( cosTheta );
-		double phi = Math.atan2( sinLambda , cosLambda );
-		if( phi < 0.0 ) {
-			phi += 2.0 * Math.PI;
-		}
-		this.harmonics.evaluate( theta , phi );
+		// The direction cosines are passed directly, avoiding arc-cosine / arc-tangent round trips
+		// (wasteful, and the arc-cosine is ill-conditioned near the poles).
+		this.harmonics.evaluateWithCosThetaCosPhiAndSinPhi( cosTheta , cosLambda , sinLambda );
 		this.harmonics.evaluateDerivatives();
 
 		// Accumulate the potential and the spherical components of its gradient.
