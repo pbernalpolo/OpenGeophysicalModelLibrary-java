@@ -7,7 +7,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-import numericalLibrary.functions.PreNormalizedAssociatedLegendrePolynomialEvaluator;
+import numericalLibrary.functions.SphericalHarmonicsEvaluator;
 import numericalLibrary.types.Vector3;
 
 
@@ -81,33 +81,16 @@ public abstract class SphericalHarmonicGravityModel
 	private final double[][] S;
 
 	/**
-	 * Evaluator of the orthonormal associated Legendre functions used to build the geodetic fully normalized ones.
+	 * Evaluator of the orthonormal spherical harmonics and their colatitude derivatives.
+	 * Its real and imaginary parts are combined with the Stokes coefficients to build the potential and its gradient.
 	 */
-	private final PreNormalizedAssociatedLegendrePolynomialEvaluator legendre;
+	private final SphericalHarmonicsEvaluator harmonics;
 
 	/**
-	 * Factor that converts the orthonormal associated Legendre value of order  m  produced by {@link #legendre}
+	 * Factor that converts the orthonormal spherical harmonic value of order  m  produced by {@link #harmonics}
 	 * into the geodetic fully normalized one. It equals  (-1)^m sqrt( 4 pi ( 2 - delta_{m0} ) ) .
 	 */
 	private final double[] geodeticNormalizationFactor;
-
-	/**
-	 * Buffer holding  cos( m lambda )  for the last {@link #setPosition(Vector3)} call.
-	 */
-	private final double[] cosMLambda;
-
-	/**
-	 * Buffer holding  sin( m lambda )  for the last {@link #setPosition(Vector3)} call.
-	 */
-	private final double[] sinMLambda;
-
-	/**
-	 * Coefficients of the colatitude-derivative recurrence, stored as a triangular array.
-	 * {@code kappa[l][m] = sqrt( (2l+1)/(2l-1) (l-m)(l+m) )} appears in
-	 * {@code sin(theta) dP_l^m/dtheta = l cos(theta) P_l^m - kappa[l][m] P_{l-1}^m}.
-	 * It depends only on {@code (l,m)}, so it is precomputed once instead of recomputing the square root on every evaluation.
-	 */
-	private final double[][] kappa;
 
 	/**
 	 * Fully normalized even zonal harmonic coefficients of the GRS80 reference ellipsoid, indexed by degree
@@ -253,16 +236,14 @@ public abstract class SphericalHarmonicGravityModel
 		double cosLambda = ( rho > 0.0 ) ? x / rho : 1.0;
 		double sinLambda = ( rho > 0.0 ) ? y / rho : 0.0;
 
-		// Evaluate the associated Legendre functions at  cos( theta ) .
-		this.legendre.evaluate( cosTheta );
-
-		// Build  cos( m lambda )  and  sin( m lambda )  by recurrence.
-		this.cosMLambda[0] = 1.0;
-		this.sinMLambda[0] = 0.0;
-		for( int m=1; m<=this.maximumDegree; m++ ) {
-			this.cosMLambda[m] = cosLambda * this.cosMLambda[m-1] - sinLambda * this.sinMLambda[m-1];
-			this.sinMLambda[m] = sinLambda * this.cosMLambda[m-1] + cosLambda * this.sinMLambda[m-1];
+		// Evaluate the spherical harmonics and their colatitude derivatives at the current direction.
+		double theta = Math.acos( cosTheta );
+		double phi = Math.atan2( sinLambda , cosLambda );
+		if( phi < 0.0 ) {
+			phi += 2.0 * Math.PI;
 		}
+		this.harmonics.evaluate( theta , phi );
+		this.harmonics.evaluateDerivatives();
 
 		// Accumulate the potential and the spherical components of its gradient.
 		// sumV          contributes to  V = ( GM / r ) sumV .
@@ -273,33 +254,29 @@ public abstract class SphericalHarmonicGravityModel
 		double sumRadial = 0.0;
 		double sumColatitude = 0.0;
 		double sumLongitude = 0.0;
-
-		// Degree 0 term ( P_0^0 = 1 , no longitude or colatitude dependence ): contributes only to the potential
-		// and to its radial derivative. Handling it here keeps the main loop free of the  l >= 1  branch.
-		double pBar00 = this.geodeticNormalizationFactor[0] * this.legendre.getPolynomialValue( 0 , 0 );
-		sumV += pBar00 * this.C[0][0];
-		sumRadial += pBar00 * this.C[0][0];
-
 		double aOverR = this.referenceRadius / r;
-		double u = aOverR;   // ( a / r )^l with l = 1.
-		for( int l=1; l<=this.maximumDegree; l++ ) {
+		double u = 1.0;   // ( a / r )^l with l = 0.
+		for( int l=0; l<=this.maximumDegree; l++ ) {
 			double[] Cl = this.C[l];
 			double[] Sl = this.S[l];
-			double[] kappaL = this.kappa[l];
 			for( int m=0; m<=l; m++ ) {
 				double factor = this.geodeticNormalizationFactor[m];
-				double pBar = factor * this.legendre.getPolynomialValue( l , m );
-				double cosPart = Cl[m] * this.cosMLambda[m] + Sl[m] * this.sinMLambda[m];
-				double sinPart = Sl[m] * this.cosMLambda[m] - Cl[m] * this.sinMLambda[m];
-				sumV += u * pBar * cosPart;
-				sumRadial += ( l + 1 ) * u * pBar * cosPart;
-				sumLongitude += u * pBar * m * sinPart;
-				// Colatitude derivative through the same-order, adjacent-degree recurrence:
-				//   sin( theta ) dP_l^m/dtheta = l cos( theta ) P_l^m - kappa[l][m] P_{l-1}^m .
-				// At the sectoral term ( m == l ) the lower-degree value does not exist, but kappa[l][l] = 0 makes it irrelevant.
-				double pBarLowerDegree = ( m < l ) ? factor * this.legendre.getPolynomialValue( l-1 , m ) : 0.0;
-				double sinThetaTimesDPBar = l * cosTheta * pBar - kappaL[m] * pBarLowerDegree;
-				sumColatitude += u * sinThetaTimesDPBar * cosPart;
+				// Orthonormal spherical harmonic real/imaginary parts and the parts of  sin( theta ) dY_l^m/dtheta .
+				double re = this.harmonics.getSphericalHarmonicsRealPart( l , m );
+				double im = this.harmonics.getSphericalHarmonicsImaginaryPart( l , m );
+				double dre = this.harmonics.getSphericalHarmonicsDerivativeRealPart( l , m );
+				double dim = this.harmonics.getSphericalHarmonicsDerivativeImaginaryPart( l , m );
+				// Geodetic combinations:
+				//   potentialTerm  = P_l^m ( C cos m lambda + S sin m lambda )
+				//   longitudeTerm  = P_l^m ( S cos m lambda - C sin m lambda )
+				//   colatitudeTerm = ( sin theta dP_l^m/dtheta )( C cos m lambda + S sin m lambda )
+				double potentialTerm = factor * ( Cl[m] * re + Sl[m] * im );
+				double longitudeTerm = factor * ( Sl[m] * re - Cl[m] * im );
+				double colatitudeTerm = factor * ( Cl[m] * dre + Sl[m] * dim );
+				sumV += u * potentialTerm;
+				sumRadial += ( l + 1 ) * u * potentialTerm;
+				sumLongitude += u * m * longitudeTerm;
+				sumColatitude += u * colatitudeTerm;
 			}
 			u *= aOverR;
 		}
@@ -371,8 +348,10 @@ public abstract class SphericalHarmonicGravityModel
 				if(  m == 0  &&  l <= maxRemovedZonal  &&  ( l & 1 ) == 0  ) {
 					cBar -= this.referenceEvenZonal[l];
 				}
-				double pBar = this.geodeticNormalizationFactor[m] * this.legendre.getPolynomialValue( l , m );
-				sum += u * pBar * ( cBar * this.cosMLambda[m] + Sl[m] * this.sinMLambda[m] );
+				double factor = this.geodeticNormalizationFactor[m];
+				double re = this.harmonics.getSphericalHarmonicsRealPart( l , m );
+				double im = this.harmonics.getSphericalHarmonicsImaginaryPart( l , m );
+				sum += u * factor * ( cBar * re + Sl[m] * im );
 			}
 			u *= aOverR;
 		}
@@ -488,27 +467,14 @@ public abstract class SphericalHarmonicGravityModel
 
 		//////// Prepare the machinery used to evaluate the potential and its gradient.
 		// The underlying evaluator requires a maximum degree of at least 1 to allocate its recurrence arrays.
-		this.legendre = new PreNormalizedAssociatedLegendrePolynomialEvaluator( Math.max( 1 , this.maximumDegree ) );
+		this.harmonics = new SphericalHarmonicsEvaluator( Math.max( 1 , this.maximumDegree ) );
 		this.geodeticNormalizationFactor = new double[ this.maximumDegree + 1 ];
 		for( int m=0; m<this.geodeticNormalizationFactor.length; m++ ) {
 			double sign = ( m % 2 == 0 ) ? 1.0 : -1.0;
 			double normalization = ( m == 0 ) ? 1.0 : 2.0;
 			this.geodeticNormalizationFactor[m] = sign * Math.sqrt( 4.0 * Math.PI * normalization );
 		}
-		this.cosMLambda = new double[ this.maximumDegree + 1 ];
-		this.sinMLambda = new double[ this.maximumDegree + 1 ];
 		this.gravityVector = Vector3.zero();
-
-		// Precompute the colatitude-derivative recurrence coefficients (they do not depend on the evaluation point).
-		this.kappa = new double[ this.maximumDegree + 1 ][];
-		this.kappa[0] = new double[ 0 ];
-		for( int l=1; l<=this.maximumDegree; l++ ) {
-			this.kappa[l] = new double[ l + 1 ];
-			double ratio = ( 2.0 * l + 1.0 ) / ( 2.0 * l - 1.0 );
-			for( int m=0; m<=l; m++ ) {
-				this.kappa[l][m] = Math.sqrt( ratio * ( l - m ) * ( l + m ) );
-			}
-		}
 
 		// Even zonal harmonics of the reference ellipsoid, used to remove the normal field for the geoid undulation.
 		this.referenceEvenZonal = referenceEllipsoidEvenZonalCoefficients();
