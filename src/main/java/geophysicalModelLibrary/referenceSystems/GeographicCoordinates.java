@@ -46,9 +46,9 @@ public class GeographicCoordinates
 	
 	/**
 	 * Sets the longitude of this {@link GeographicCoordinates}.
-	 * 
-	 * Longitude is usually denoted as phi.
-	 * 
+	 *
+	 * Longitude is usually denoted as lambda.
+	 *
 	 * @param longitude		angle that defines the east-west position of a point on the surface of a celestial body. [rad]
 	 */
 	public void setLongitude( double longitude )
@@ -61,8 +61,8 @@ public class GeographicCoordinates
 	 * Returns the longitude of this {@link GeographicCoordinates}.
 	 * 
 	 * The longitude is the angle that defines the east-west position of a point on the surface of a celestial body.
-	 * It is usually denoted as phi.
-	 * 
+	 * It is usually denoted as lambda.
+	 *
 	 * @return	longitude of this {@link GeographicCoordinates}. [rad]
 	 */
 	public double getLongitude()
@@ -73,9 +73,9 @@ public class GeographicCoordinates
 	
 	/**
 	 * Sets the latitude of this {@link GeographicCoordinates}.
-	 * 
-	 * Latitude is usually denoted as lambda.
-	 * 
+	 *
+	 * Latitude is usually denoted as phi.
+	 *
 	 * @param latitude	angle that defines the north-south position of a point on the surface of a celestial body. [rad]
 	 */
 	public void setLatitude( double latitude )
@@ -88,8 +88,8 @@ public class GeographicCoordinates
 	 * Returns the latitude of this {@link GeographicCoordinates}.
 	 * 
 	 * The latitude is the angle that defines the north-south position of a point on the surface of a celestial body.
-	 * It is usually denoted as lambda.
-	 * 
+	 * It is usually denoted as phi.
+	 *
 	 * @return	latitude of this {@link GeographicCoordinates}. [rad]
 	 */
 	public double getLatitude()
@@ -114,7 +114,7 @@ public class GeographicCoordinates
 	/**
 	 * Returns the height of this {@link GeographicCoordinates}.
 	 * 
-	 * The height is the altitude from the surface of the reference system to the point.
+	 * The height is the altitude from the surface of the reference ellipsoid to the point.
 	 * It is usually denoted as h.
 	 * 
 	 * @return	height of this {@link GeographicCoordinates}. [m]
