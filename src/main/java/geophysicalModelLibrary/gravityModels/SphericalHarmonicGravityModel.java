@@ -7,6 +7,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
+import geophysicalModelLibrary.referenceSystems.GeodeticReferenceSystem;
+import geophysicalModelLibrary.referenceSystems.Grs80;
 import numericalLibrary.functions.SphericalHarmonicsEvaluator;
 import numericalLibrary.types.Vector3;
 
@@ -93,8 +95,18 @@ public abstract class SphericalHarmonicGravityModel
 	private final double[] geodeticNormalizationFactor;
 
 	/**
-	 * Fully normalized even zonal harmonic coefficients of the GRS80 reference ellipsoid, indexed by degree
-	 * (only degrees 2, 4, 6, 8 are non-zero). Used to remove the normal field when computing the geoid undulation.
+	 * Geodetic reference system whose normal field is removed to obtain the disturbing potential
+	 * (and hence the geoid undulation / height anomaly).
+	 * Defaults to {@link Grs80}; change it with {@link #setReferenceSystem(GeodeticReferenceSystem)}.
+	 */
+	private GeodeticReferenceSystem referenceSystem;
+	
+	/**
+	 * Fully normalized even zonal coefficients of {@link #referenceSystem}'s normal field, indexed by degree and sized to
+	 * {@link #maximumDegree} (entries are 0 wherever the reference system has no zonal term, so this model makes no
+	 * assumption about which degrees those are).
+	 * The array reference is fixed; its contents are refreshed by
+	 * {@link #setReferenceSystem(GeodeticReferenceSystem)} so the normal field is removed without recomputing it on every evaluation.
 	 */
 	private final double[] referenceEvenZonal;
 
@@ -323,28 +335,34 @@ public abstract class SphericalHarmonicGravityModel
 
 
 	/**
-	 * Returns the geoid undulation  N  in [m] at the position set with {@link #setPosition(Vector3)}.
+	 * Returns the height anomaly  zeta  in [m] at the position set with {@link #setPosition(Vector3)}.
 	 * <p>
-	 * The undulation is the height of the geoid above the GRS80 reference ellipsoid, computed from Bruns' formula
-	 * {@code N = T / gamma}, where  T  is the disturbing potential (the model potential with the degrees 0 and 1 and the
-	 * even zonal harmonics of the reference ellipsoid removed) and  gamma  is a representative normal gravity, taken here
-	 * as  GM / a^2 . When the position lies above the reference sphere this returns the height anomaly at that point.
+	 * This is the quantity a spherical harmonic model yields rigorously from its coefficients alone: Bruns' formula
+	 * {@code zeta = T / gamma}, where  T  is the disturbing potential evaluated <i>at the given point</i> (the model
+	 * potential with the degrees 0 and 1 and the even zonal harmonics of the reference system removed) and  gamma  is a
+	 * representative normal gravity, taken here as  GM / a^2 .
+	 * <p>
+	 * The height anomaly is the separation between the Earth's surface and the telluroid; it is what relates the
+	 * ellipsoidal height  h  to the <i>normal</i> height  H* :  h = H* + zeta . Because  T  is taken at the evaluation
+	 * point, evaluate this at your actual position to relate that position's  h  to its normal height. See
+	 * {@link #getGeoidUndulation()} for the (closely related) geoid undulation.
 	 *
-	 * @return	geoid undulation  N  in [m].
+	 * @return	height anomaly  zeta  in [m].
 	 */
-	public double getGeoidUndulation()
+	public double getHeightAnomaly()
 	{
 		double r = this.radius;
 		double aOverR = this.referenceRadius / r;
 		double u = aOverR * aOverR;   // ( a / r )^l with l = 2.
-		int maxRemovedZonal = Math.min( 8 , this.maximumDegree );
 		double sum = 0.0;
 		for( int l=2; l<=this.maximumDegree; l++ ) {
 			double[] Cl = this.C[l];
 			double[] Sl = this.S[l];
 			for( int m=0; m<=l; m++ ) {
 				double cBar = Cl[m];
-				if(  m == 0  &&  l <= maxRemovedZonal  &&  ( l & 1 ) == 0  ) {
+				if(  m == 0  ) {
+					// The normal field is zonal, so it only corrects the order-0 coefficients. Which degrees it occupies
+					// is the reference system's concern: referenceEvenZonal is 0 wherever it has no zonal term.
 					cBar -= this.referenceEvenZonal[l];
 				}
 				double factor = this.geodeticNormalizationFactor[m];
@@ -358,6 +376,55 @@ public abstract class SphericalHarmonicGravityModel
 		double normalGravity = this.gravitationalParameter / ( this.referenceRadius * this.referenceRadius );
 		return disturbingPotential / normalGravity;
 	}
+
+
+	/**
+	 * Returns the geoid undulation  N  in [m] at the position set with {@link #setPosition(Vector3)}:
+	 * the height of the geoid above the reference ellipsoid.
+	 * It is what relates the ellipsoidal height  h  to the <i>orthometric</i> height (height above mean sea level):
+	 * h = H + N .
+	 * <p>
+	 * <b>Approximation.</b> From the spherical harmonic coefficients alone one can compute the disturbing potential, and
+	 * hence the height anomaly {@code zeta} (see {@link #getHeightAnomaly()}), but not the rigorous geoid undulation: the
+	 * geoid lies inside the topographic masses on land, so  N = zeta + ( N - zeta )  with a correction term
+	 * {@code N - zeta ~= ( Bouguer anomaly / gamma ) * H} that requires the terrain height and density, which this model
+	 * does not have. This method therefore returns {@code zeta}, which equals  N  exactly over the oceans and differs
+	 * from it on land by typically decimeters (up to a few meters in high mountains). For a rigorous land geoid use a
+	 * published geoid grid (for example NGA's EGM2008 geoid). To obtain a location's undulation rather than the value at
+	 * your altitude, set the position on the ellipsoid surface ( h = 0 ) before calling this.
+	 *
+	 * @return	geoid undulation  N  in [m] (approximated by the height anomaly; exact over the oceans).
+	 */
+	public double getGeoidUndulation()
+	{
+		return this.getHeightAnomaly();
+	}
+
+
+	/**
+	 * Returns the geodetic reference system whose normal field is removed for the geoid undulation / height anomaly.
+	 *
+	 * @return	geodetic reference system in use.
+	 */
+	public GeodeticReferenceSystem referenceSystem()
+	{
+		return this.referenceSystem;
+	}
+
+
+	/**
+	 * Sets the geodetic reference system whose normal field is removed to obtain the disturbing potential, and hence the
+	 * geoid undulation / height anomaly. It defaults to {@link Grs80}.
+	 *
+	 * @param referenceSystem	geodetic reference system to refer the geoid undulation / height anomaly to.
+	 */
+	public final void setReferenceSystem( GeodeticReferenceSystem referenceSystem )
+	{
+		this.referenceSystem = referenceSystem;
+		for( int n=0; n<this.referenceEvenZonal.length; n++ ) {
+			this.referenceEvenZonal[n] = referenceSystem.normalizedEvenZonalCoefficient( n );
+		}
+	}
 	
 	
 	
@@ -370,6 +437,9 @@ public abstract class SphericalHarmonicGravityModel
 	 * <p>
 	 * The {@code .gfc} file is assumed to list its coefficients by ascending degree, as defined by the ICGEM format.
 	 * The stream is read fully and {@link InputStream#close() closed} before this constructor returns.
+	 * <p>
+	 * The geoid undulation / height anomaly are referred to the {@link Grs80} normal field by default. Use
+	 * {@link #setReferenceSystem(GeodeticReferenceSystem)} to refer them to a different one.
 	 *
 	 * @param input				stream that provides the {@code .gfc} contents.
 	 * @param maximumDegree		maximum degree  l  to load. Coefficients with degree above this value are not loaded.
@@ -474,9 +544,11 @@ public abstract class SphericalHarmonicGravityModel
 			this.geodeticNormalizationFactor[m] = sign * Math.sqrt( 4.0 * Math.PI * normalization );
 		}
 		this.gravityVector = Vector3.zero();
-
-		// Even zonal harmonics of the reference ellipsoid, used to remove the normal field for the geoid undulation.
-		this.referenceEvenZonal = referenceEllipsoidEvenZonalCoefficients();
+		
+		// Sized to this model's own degree range; the reference system decides which entries are non-zero.
+		this.referenceEvenZonal = new double[ this.maximumDegree + 1 ];
+		// Reference system whose normal field is removed for the geoid undulation; GRS80 unless changed afterwards.
+		this.setReferenceSystem( new Grs80() );
 	}
 	
 	
@@ -496,32 +568,6 @@ public abstract class SphericalHarmonicGravityModel
 	private static double parseFortranDouble( String value )
 	{
 		return Double.parseDouble( value.replace( 'D' , 'e' ).replace( 'd' , 'e' ) );
-	}
-
-
-	/**
-	 * Returns the fully normalized even zonal harmonic coefficients of the GRS80 reference ellipsoid, indexed by degree.
-	 * <p>
-	 * They are obtained from the closed-form expression of the even zonal harmonics  J_{2n}  of an equipotential ellipsoid
-	 * (Heiskanen and Moritz, "Physical Geodesy", eq. 2-92), and converted to the geodetic fully normalized convention with
-	 * {@code C_{l,0} = -J_l / sqrt( 2 l + 1 )}.
-	 *
-	 * @return	array indexed by degree; only degrees 2, 4, 6, 8 are non-zero.
-	 */
-	private static double[] referenceEllipsoidEvenZonalCoefficients()
-	{
-		double firstEccentricitySquared = 0.00669438002290;   // GRS80
-		double dynamicFormFactor = 0.00108263;                 // GRS80  J2
-		double[] coefficients = new double[ 9 ];
-		for( int n=1; n<=4; n++ ) {
-			int degree = 2 * n;
-			double sign = ( n % 2 == 0 ) ? -1.0 : 1.0;   // (-1)^{n+1}
-			double eccentricityPower = Math.pow( firstEccentricitySquared , n );
-			double j = sign * ( 3.0 * eccentricityPower ) / ( ( 2.0 * n + 1.0 ) * ( 2.0 * n + 3.0 ) )
-					* ( 1.0 - n + 5.0 * n * dynamicFormFactor / firstEccentricitySquared );
-			coefficients[ degree ] = -j / Math.sqrt( 2.0 * degree + 1.0 );
-		}
-		return coefficients;
 	}
 
 }
