@@ -5,36 +5,63 @@ import numericalLibrary.types.Vector3;
 
 
 
+/**
+ * Converts between geodetic coordinates (latitude, longitude, ellipsoidal height) and body-centered, body-fixed
+ * Cartesian coordinates, for a given reference ellipsoid.
+ * <p>
+ * The ellipsoid is described by its equatorial radius  a  and the square of its first eccentricity  e^2 .
+ * The forward conversion (geodetic to Cartesian) is exact;
+ * the inverse (Cartesian to geodetic) uses Bowring's closed-form method.
+ */
 public class GeodeticCoordinatesConverter
 {
-	
+	////////////////////////////////////////////////////////////////
+	/// PRIVATE VARIABLES
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Equatorial radius (semi-major axis)  a  of the reference ellipsoid. [m]
+	 */
 	private final double equatorialRadius;
+
+	/**
+	 * Square of the first eccentricity  e^2  of the reference ellipsoid. [dimensionless]
+	 */
 	private final double eccentricitySquared;
-	
-	
-	public static GeodeticCoordinatesConverter fromEquatorialRadiusAndPolarRadius( double equatorialRadius , double polarRadius )
+
+
+
+	////////////////////////////////////////////////////////////////
+	/// PUBLIC CONSTRUCTORS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Constructs a {@link GeodeticCoordinatesConverter} for the ellipsoid of the given geodetic reference system (for
+	 * example {@link Wgs84}, the datum of GPS).
+	 *
+	 * @param referenceSystem	geodetic reference system providing the ellipsoid.
+	 */
+	public GeodeticCoordinatesConverter( GeodeticReferenceSystem referenceSystem )
 	{
-		double eccentricitySquared = 1.0 - ( polarRadius * polarRadius ) / ( equatorialRadius * equatorialRadius );
-		GeodeticCoordinatesConverter output = new GeodeticCoordinatesConverter( equatorialRadius , eccentricitySquared );
-		return output;
+		this.equatorialRadius = referenceSystem.equatorialRadius();
+		this.eccentricitySquared = referenceSystem.eccentricitySquared();
 	}
-	
-	
-	public static GeodeticCoordinatesConverter fromEquatorialRadiusAndEccentricity( double equatorialRadius , double eccentricity )
-	{
-		double eccentricitySquared = eccentricity * eccentricity;
-		GeodeticCoordinatesConverter output = new GeodeticCoordinatesConverter( equatorialRadius , eccentricitySquared );
-		return output;
-	}
-	
-	
-	public static GeodeticCoordinatesConverter fromWGS84()
-	{
-		// https://en.wikipedia.org/wiki/World_Geodetic_System#WGS84
-		return GeodeticCoordinatesConverter.fromEquatorialRadiusAndPolarRadius( 6378137.0 , 6356752.314245 );
-	}
-	
-	
+
+
+
+	////////////////////////////////////////////////////////////////
+	/// PUBLIC METHODS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Converts a body-centered, body-fixed Cartesian position into geodetic coordinates, using Bowring's method.
+	 * <p>
+	 * Unlike {@link #toCartesian(GeographicCoordinates)}, this conversion is not exact: Bowring's method is a very
+	 * accurate closed-form approximation (sub-millimeter for near-surface points), not an exact inversion.
+	 *
+	 * @param position	Cartesian position in the body-centered, body-fixed frame. [m]
+	 * @return	geodetic latitude and longitude [rad] and ellipsoidal height [m] of the position.
+	 */
 	public GeographicCoordinates fromCartesian( Vector3 position )
 	{
 		// We use Bowring's method.
@@ -55,8 +82,15 @@ public class GeodeticCoordinatesConverter
 		output.setHeight( p / Math.cos( phi ) - this.primeVerticalRadiusOfCurvature( phi ) );
 		return output;
 	}
-	
-	
+
+
+	/**
+	 * Converts geodetic coordinates into a body-centered, body-fixed Cartesian position.
+	 * This conversion is exact.
+	 *
+	 * @param coordinates	geodetic latitude and longitude [rad] and ellipsoidal height [m].
+	 * @return	Cartesian position in the body-centered, body-fixed frame. [m]
+	 */
 	public Vector3 toCartesian( GeographicCoordinates coordinates )
 	{
 		double phi = coordinates.getLatitude();
@@ -71,19 +105,23 @@ public class GeodeticCoordinatesConverter
 				( ( 1.0 - this.eccentricitySquared ) * N_phi + h ) * Math.sin( phi ) );
 				//( r - this.eccentricitySquared * N_phi ) * Math.sin( phi ) );  Same but less readable, and perhaps less numerically stable.
 	}
-	
-	
-	private GeodeticCoordinatesConverter( double equatorialRadius , double eccentricitySquared )
-	{
-		this.equatorialRadius = equatorialRadius;
-		this.eccentricitySquared = eccentricitySquared;
-	}
-	
-	
+
+
+
+	////////////////////////////////////////////////////////////////
+	/// PRIVATE METHODS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Returns the radius of curvature of the ellipsoid in the prime vertical at the given geodetic latitude.
+	 *
+	 * @param phi	geodetic latitude. [rad]
+	 * @return	prime-vertical radius of curvature. [m]
+	 */
 	private double primeVerticalRadiusOfCurvature( double phi )
 	{
 		double sin_phi = Math.sin( phi );
 		return this.equatorialRadius / Math.sqrt( 1.0 - this.eccentricitySquared * ( sin_phi * sin_phi ) );
 	}
-	
+
 }
