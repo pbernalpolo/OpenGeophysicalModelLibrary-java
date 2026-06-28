@@ -1,4 +1,4 @@
-package geophysicalModelLibrary.magneticModel;
+package geophysicalModelLibrary.magneticModels;
 
 
 import java.io.BufferedReader;
