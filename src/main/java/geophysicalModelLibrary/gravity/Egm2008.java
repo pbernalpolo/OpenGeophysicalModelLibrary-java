@@ -1,4 +1,4 @@
-package geophysicalModelLibrary.gravityModels;
+package geophysicalModelLibrary.gravity;
 
 
 import java.io.FileInputStream;

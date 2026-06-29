@@ -1,4 +1,4 @@
-package geophysicalModelLibrary.gravityModels;
+package geophysicalModelLibrary.gravity;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
