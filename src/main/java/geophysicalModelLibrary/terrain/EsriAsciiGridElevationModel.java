@@ -147,7 +147,77 @@ public class EsriAsciiGridElevationModel
 	}
 
 
+	/**
+	 * Returns the number of rows (north-south) of the grid.
+	 *
+	 * @return	number of rows.
+	 */
+	public int rowCount()
+	{
+		return this.rowCount;
+	}
 
+
+	/**
+	 * Returns the number of columns (west-east) of the grid.
+	 *
+	 * @return	number of columns.
+	 */
+	public int columnCount()
+	{
+		return this.columnCount;
+	}
+
+
+	/**
+	 * Returns the cell size (grid spacing), the same in both directions.
+	 *
+	 * @return	cell size. [deg]
+	 */
+	public double cellSizeDegrees()
+	{
+		return this.cellSize;
+	}
+
+
+	/**
+	 * Returns the latitude of the cell centers of a grid row; row 0 is the northernmost.
+	 *
+	 * @param row	row index, in {@code [0, rowCount - 1]}.
+	 * @return	latitude of the row's cell centers. [deg]
+	 */
+	public double latitudeOfRow( int row )
+	{
+		return this.northCenterLatitude - row * this.cellSize;
+	}
+
+
+	/**
+	 * Returns the longitude of the cell centers of a grid column; column 0 is the westernmost.
+	 *
+	 * @param column	column index, in {@code [0, columnCount - 1]}.
+	 * @return	longitude of the column's cell centers. [deg]
+	 */
+	public double longitudeOfColumn( int column )
+	{
+		return this.westCenterLongitude + column * this.cellSize;
+	}
+
+
+	/**
+	 * Returns the stored elevation of a grid cell, without interpolation, or {@link Double#NaN} for a no-data cell.
+	 *
+	 * @param row		row index, in {@code [0, rowCount - 1]} (0 is the northernmost).
+	 * @param column	column index, in {@code [0, columnCount - 1]} (0 is the westernmost).
+	 * @return	cell elevation, or {@code NaN} if the cell has no data. [m]
+	 */
+	public double elevation( int row , int column )
+	{
+		return this.elevations[ row * this.columnCount + column ];
+	}
+	
+	
+	
 	////////////////////////////////////////////////////////////////
 	/// PRIVATE CONSTRUCTORS
 	////////////////////////////////////////////////////////////////
