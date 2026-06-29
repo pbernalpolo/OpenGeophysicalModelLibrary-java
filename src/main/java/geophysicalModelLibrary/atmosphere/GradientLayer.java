@@ -1,15 +1,16 @@
-package geophysicalModelLibrary.atmosphericModels;
+package geophysicalModelLibrary.atmosphere;
 
 
 
 /**
- * An {@link AtmosphericLayer} with zero lapse rate, so the temperature is constant throughout the layer.
+ * An {@link AtmosphericLayer} with a non-zero lapse rate,
+ * so the temperature changes linearly with geopotential altitude.
  * <p>
- * Integrating the hydrostatic equation with  T = T_b  gives the exponential (barometric) law:
+ * Integrating the hydrostatic equation with  T = T_b + L ( H - H_b )  gives the power law:
  * <br>
- *   P( H ) = P_b exp( -g ( H - H_b ) / ( R T_b ) )
+ *   P( H ) = P_b ( T( H ) / T_b )^( -g / ( R L ) )
  */
-class IsothermalLayer
+class GradientLayer
 	extends AtmosphericLayer
 {
 	////////////////////////////////////////////////////////////////
@@ -17,9 +18,9 @@ class IsothermalLayer
 	////////////////////////////////////////////////////////////////
 
 	/**
-	 * Coefficient of the exponential pressure law,  -g / ( R T_b ) . [1/m]
+	 * Exponent of the pressure power law,  -g / ( R L ) . [dimensionless]
 	 */
-	private final double pressureScaleFactor;
+	private final double pressureExponent;
 
 
 
@@ -28,19 +29,21 @@ class IsothermalLayer
 	////////////////////////////////////////////////////////////////
 
 	/**
-	 * Constructs an {@link IsothermalLayer}. Its lapse rate is zero by definition.
+	 * Constructs a {@link GradientLayer}.
 	 *
 	 * @param baseGeopotentialAltitude	geopotential altitude of the bottom of the layer. [m]
 	 * @param topGeopotentialAltitude	geopotential altitude of the top of the layer. [m]
-	 * @param baseTemperature			(constant) temperature of the layer. [K]
+	 * @param baseTemperature			temperature at the base of the layer. [K]
 	 * @param basePressure				pressure at the base of the layer. [Pa]
+	 * @param lapseRate					rate of change of temperature with geopotential altitude (must be non-zero). [K/m]
 	 * @param constants					physical constants of the atmosphere.
 	 */
-	IsothermalLayer(
+	GradientLayer(
 		double baseGeopotentialAltitude ,
 		double topGeopotentialAltitude ,
 		double baseTemperature ,
 		double basePressure ,
+		double lapseRate ,
 		AtmosphericConstants constants
 	) {
 		super(
@@ -48,9 +51,9 @@ class IsothermalLayer
 			topGeopotentialAltitude ,
 			baseTemperature ,
 			basePressure ,
-			0.0 ,
+			lapseRate ,
 			constants );
-		this.pressureScaleFactor = -constants.gravity() / ( constants.specificGasConstant() * baseTemperature );
+		this.pressureExponent = -constants.gravity() / ( constants.specificGasConstant() * lapseRate );
 	}
 
 
@@ -64,7 +67,8 @@ class IsothermalLayer
 	 */
 	protected double pressureAtGeopotentialAltitude( double geopotentialAltitude )
 	{
-		return this.basePressure * Math.exp( this.pressureScaleFactor * ( geopotentialAltitude - this.baseGeopotentialAltitude ) );
+		double temperatureRatio = this.temperatureAtGeopotentialAltitude( geopotentialAltitude ) / this.baseTemperature;
+		return this.basePressure * Math.pow( temperatureRatio , this.pressureExponent );
 	}
 
 }

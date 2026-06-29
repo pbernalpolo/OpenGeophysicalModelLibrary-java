@@ -1,4 +1,4 @@
-package geophysicalModelLibrary.atmosphericModels;
+package geophysicalModelLibrary.atmosphere;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

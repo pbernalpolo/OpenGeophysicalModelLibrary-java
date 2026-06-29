@@ -1,4 +1,4 @@
-package geophysicalModelLibrary.atmosphericModels;
+package geophysicalModelLibrary.atmosphere;
 
 
 
