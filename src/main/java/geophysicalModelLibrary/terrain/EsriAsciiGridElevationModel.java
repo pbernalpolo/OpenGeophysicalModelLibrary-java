@@ -36,6 +36,9 @@ import java.nio.charset.StandardCharsets;
  * Coordinates are interpreted as geographic longitude (x) and latitude (y) on WGS84,
  * as distributed by <a href="https://opentopography.org">OpenTopography</a>
  * for the Copernicus GLO-30 (COP30) dataset.
+ * The ESRI header is in degrees, but this class's public geographic API (the {@link #elevationAt} query
+ * and the {@link #latitudeOfRow} / {@link #longitudeOfColumn} / {@link #cellSizeRadians} accessors) is in radians;
+ * the header values are converted to radians on load.
  * That dataset is a Digital Surface Model (it includes vegetation and buildings, not bare earth)
  * with heights referenced to the EGM2008 geoid (orthometric height above mean sea level).
  */
@@ -53,12 +56,12 @@ public class EsriAsciiGridElevationModel
 	private final int rowCount;
 
 	/**
-	 * Cell size (grid spacing), the same in both directions. [deg]
+	 * Cell size (grid spacing), the same in both directions. [rad]
 	 */
 	private final double cellSize;
 
 	/**
-	 * Longitude of the center of the westernmost column, and latitude of the center of the northernmost row. [deg]
+	 * Longitude of the center of the westernmost column, and latitude of the center of the northernmost row. [rad]
 	 */
 	private final double westCenterLongitude;
 	private final double northCenterLatitude;
@@ -114,11 +117,11 @@ public class EsriAsciiGridElevationModel
 	 * <p>
 	 * The elevation is bilinearly interpolated among the four cell centers surrounding the position.
 	 */
-	public double elevationAt( double latitudeDegrees , double longitudeDegrees )
+	public double elevationAt( double latitudeRadians , double longitudeRadians )
 	{
 		// Fractional column (west to east) and row (north to south) in cell-center coordinates.
-		double fractionalColumn = ( longitudeDegrees - this.westCenterLongitude ) / this.cellSize;
-		double fractionalRow = ( this.northCenterLatitude - latitudeDegrees ) / this.cellSize;
+		double fractionalColumn = ( longitudeRadians - this.westCenterLongitude ) / this.cellSize;
+		double fractionalRow = ( this.northCenterLatitude - latitudeRadians ) / this.cellSize;
 		if(  fractionalColumn < 0.0  ||  this.columnCount - 1 < fractionalColumn
 			||  fractionalRow < 0.0  ||  this.rowCount - 1 < fractionalRow  ) {
 			return Double.NaN;
@@ -172,9 +175,9 @@ public class EsriAsciiGridElevationModel
 	/**
 	 * Returns the cell size (grid spacing), the same in both directions.
 	 *
-	 * @return	cell size. [deg]
+	 * @return	cell size. [rad]
 	 */
-	public double cellSizeDegrees()
+	public double cellSizeRadians()
 	{
 		return this.cellSize;
 	}
@@ -184,7 +187,7 @@ public class EsriAsciiGridElevationModel
 	 * Returns the latitude of the cell centers of a grid row; row 0 is the northernmost.
 	 *
 	 * @param row	row index, in {@code [0, rowCount - 1]}.
-	 * @return	latitude of the row's cell centers. [deg]
+	 * @return	latitude of the row's cell centers. [rad]
 	 */
 	public double latitudeOfRow( int row )
 	{
@@ -196,7 +199,7 @@ public class EsriAsciiGridElevationModel
 	 * Returns the longitude of the cell centers of a grid column; column 0 is the westernmost.
 	 *
 	 * @param column	column index, in {@code [0, columnCount - 1]}.
-	 * @return	longitude of the column's cell centers. [deg]
+	 * @return	longitude of the column's cell centers. [rad]
 	 */
 	public double longitudeOfColumn( int column )
 	{
@@ -278,12 +281,13 @@ public class EsriAsciiGridElevationModel
 
 		this.columnCount = columns;
 		this.rowCount = rows;
-		this.cellSize = cellSizeDegrees;
+		// The header is in degrees; the public geographic API is in radians, so convert the derived geometry once here.
+		this.cellSize = Math.toRadians( cellSizeDegrees );
 		// Reduce the lower-left anchor to cell centers, then locate the west column and the north row.
 		double southWestCenterLongitude = anchorLongitudeIsCorner ? anchorLongitude + 0.5 * cellSizeDegrees : anchorLongitude;
 		double southWestCenterLatitude = anchorLatitudeIsCorner ? anchorLatitude + 0.5 * cellSizeDegrees : anchorLatitude;
-		this.westCenterLongitude = southWestCenterLongitude;
-		this.northCenterLatitude = southWestCenterLatitude + ( rows - 1 ) * cellSizeDegrees;
+		this.westCenterLongitude = Math.toRadians( southWestCenterLongitude );
+		this.northCenterLatitude = Math.toRadians( southWestCenterLatitude + ( rows - 1 ) * cellSizeDegrees );
 
 		this.elevations = readElevations( reader , firstDataLine , columns * rows , noDataValue , hasNoDataValue );
 	}

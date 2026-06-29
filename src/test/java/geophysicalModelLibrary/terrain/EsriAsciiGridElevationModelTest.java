@@ -1,6 +1,7 @@
 package geophysicalModelLibrary.terrain;
 
 
+import static java.lang.Math.toRadians;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -54,10 +55,10 @@ public class EsriAsciiGridElevationModelTest
 	void returnsCellValueAtCenters( @TempDir Path directory ) throws IOException
 	{
 		EsriAsciiGridElevationModel model = modelFrom( directory , GRID_3X3 );
-		assertEquals( 0.0 , model.elevationAt( 0.5 , 0.5 ) , 1.0e-9 );   // south-west cell
-		assertEquals( 22.0 , model.elevationAt( 2.5 , 2.5 ) , 1.0e-9 );  // north-east cell
-		assertEquals( 11.0 , model.elevationAt( 1.5 , 1.5 ) , 1.0e-9 );  // center cell
-		assertEquals( 20.0 , model.elevationAt( 2.5 , 0.5 ) , 1.0e-9 );  // north-west cell
+		assertEquals( 0.0 , model.elevationAt( toRadians( 0.5 ) , toRadians( 0.5 ) ) , 1.0e-9 );   // south-west cell
+		assertEquals( 22.0 , model.elevationAt( toRadians( 2.5 ) , toRadians( 2.5 ) ) , 1.0e-9 );  // north-east cell
+		assertEquals( 11.0 , model.elevationAt( toRadians( 1.5 ) , toRadians( 1.5 ) ) , 1.0e-9 );  // center cell
+		assertEquals( 20.0 , model.elevationAt( toRadians( 2.5 ) , toRadians( 0.5 ) ) , 1.0e-9 );  // north-west cell
 	}
 
 
@@ -69,11 +70,11 @@ public class EsriAsciiGridElevationModelTest
 	{
 		EsriAsciiGridElevationModel model = modelFrom( directory , GRID_3X3 );
 		// Halfway east between the south-west cell (0) and its east neighbor (1).
-		assertEquals( 0.5 , model.elevationAt( 0.5 , 1.0 ) , 1.0e-9 );
+		assertEquals( 0.5 , model.elevationAt( toRadians( 0.5 ) , toRadians( 1.0 ) ) , 1.0e-9 );
 		// Halfway north between the south-west cell (0) and the cell above it (10).
-		assertEquals( 5.0 , model.elevationAt( 1.0 , 0.5 ) , 1.0e-9 );
+		assertEquals( 5.0 , model.elevationAt( toRadians( 1.0 ) , toRadians( 0.5 ) ) , 1.0e-9 );
 		// Center of the four south-west cells: mean of 0, 1, 10, 11.
-		assertEquals( 5.5 , model.elevationAt( 1.0 , 1.0 ) , 1.0e-9 );
+		assertEquals( 5.5 , model.elevationAt( toRadians( 1.0 ) , toRadians( 1.0 ) ) , 1.0e-9 );
 	}
 
 
@@ -84,33 +85,37 @@ public class EsriAsciiGridElevationModelTest
 	void returnsNaNOutsideCoverage( @TempDir Path directory ) throws IOException
 	{
 		EsriAsciiGridElevationModel model = modelFrom( directory , GRID_3X3 );
-		assertTrue( Double.isNaN( model.elevationAt( 0.5 , 0.0 ) ) , "west of the westernmost cell center" );
-		assertTrue( Double.isNaN( model.elevationAt( 3.0 , 0.5 ) ) , "north of the northernmost cell center" );
-		assertTrue( Double.isNaN( model.elevationAt( 0.5 , 2.5001 ) ) , "just east of the easternmost cell center" );
+		assertTrue( Double.isNaN( model.elevationAt( toRadians( 0.5 ) , toRadians( 0.0 ) ) ) , "west of the westernmost cell center" );
+		assertTrue( Double.isNaN( model.elevationAt( toRadians( 3.0 ) , toRadians( 0.5 ) ) ) , "north of the northernmost cell center" );
+		assertTrue( Double.isNaN( model.elevationAt( toRadians( 0.5 ) , toRadians( 2.5001 ) ) ) , "just east of the easternmost cell center" );
 		// The extent edges themselves are valid.
-		assertEquals( 2.0 , model.elevationAt( 0.5 , 2.5 ) , 1.0e-9 );
+		assertEquals( 2.0 , model.elevationAt( toRadians( 0.5 ) , toRadians( 2.5 ) ) , 1.0e-9 );
 	}
 
 
 	/**
-	 * Tests that a no-data cell yields NaN at its center and wherever its interpolation stencil is touched.
+	 * Tests that a no-data cell yields NaN at its center and wherever its interpolation stencil is touched, while a cell
+	 * whose whole stencil is valid returns its value. (Under the conservative no-data rule, any cell bordering the void
+	 * is NaN, so the valid probe is placed away from the no-data corner.)
 	 */
 	@Test
 	void honorsNoDataValue( @TempDir Path directory ) throws IOException
 	{
+		// 3x3 with cell centers at 0.5 / 1.5 / 2.5 and the no-data value at the north-east corner cell.
 		String grid =
-				"ncols 2\n" +
-				"nrows 2\n" +
+				"ncols 3\n" +
+				"nrows 3\n" +
 				"xllcorner 0.0\n" +
 				"yllcorner 0.0\n" +
 				"cellsize 1.0\n" +
 				"NODATA_value -9999\n" +
-				"5 -9999\n" +
-				"5 5\n";
+				"20 21 -9999\n" +
+				"10 11 12\n" +
+				"0 1 2\n";
 		EsriAsciiGridElevationModel model = modelFrom( directory , grid );
-		assertTrue( Double.isNaN( model.elevationAt( 1.5 , 1.5 ) ) , "the no-data cell center" );
-		assertTrue( Double.isNaN( model.elevationAt( 1.0 , 1.0 ) ) , "a stencil touching the no-data cell" );
-		assertEquals( 5.0 , model.elevationAt( 0.5 , 0.5 ) , 1.0e-9 , "a fully valid cell center" );
+		assertTrue( Double.isNaN( model.elevationAt( toRadians( 2.5 ) , toRadians( 2.5 ) ) ) , "the no-data cell center" );
+		assertTrue( Double.isNaN( model.elevationAt( toRadians( 2.0 ) , toRadians( 2.0 ) ) ) , "a stencil touching the no-data cell" );
+		assertEquals( 10.0 , model.elevationAt( toRadians( 1.5 ) , toRadians( 0.5 ) ) , 1.0e-9 , "a cell center whose stencil avoids the void" );
 	}
 
 
@@ -128,8 +133,8 @@ public class EsriAsciiGridElevationModelTest
 				"cellsize 2.0\n" +
 				"100 200\n";
 		EsriAsciiGridElevationModel model = modelFrom( directory , grid );
-		assertEquals( 100.0 , model.elevationAt( 20.0 , 10.0 ) , 1.0e-9 );
-		assertEquals( 150.0 , model.elevationAt( 20.0 , 11.0 ) , 1.0e-9 );
+		assertEquals( 100.0 , model.elevationAt( toRadians( 20.0 ) , toRadians( 10.0 ) ) , 1.0e-9 );
+		assertEquals( 150.0 , model.elevationAt( toRadians( 20.0 ) , toRadians( 11.0 ) ) , 1.0e-9 );
 	}
 
 

@@ -8,7 +8,7 @@ package geophysicalModelLibrary.terrain;
  * <p>
  * Unlike the magnetic or gravity models, which are evaluated at a three-dimensional position,
  * an elevation is a function of horizontal position only,
- * so the model is queried with a geographic latitude and longitude
+ * so the model is queried with a geographic latitude and longitude (in radians)
  * and returns the elevation at that point.
  * Implementations differ in their data source
  * (a high-resolution raster, a coarse global grid, tiled data, ...),
@@ -26,9 +26,9 @@ public interface ElevationModel
 	 * Returns the terrain elevation at a geographic position, or {@link Double#NaN} where the model has no data
 	 * (the position is outside the model's coverage, or the data contains a no-data value).
 	 *
-	 * @param latitudeDegrees	geodetic latitude. [deg]
-	 * @param longitudeDegrees	longitude. [deg]
+	 * @param latitudeRadians	geodetic latitude. [rad]
+	 * @param longitudeRadians	longitude. [rad]
 	 * @return	elevation above the model's vertical datum, or {@code NaN} if unavailable. [m]
 	 */
-	double elevationAt( double latitudeDegrees , double longitudeDegrees );
+	double elevationAt( double latitudeRadians , double longitudeRadians );
 }
