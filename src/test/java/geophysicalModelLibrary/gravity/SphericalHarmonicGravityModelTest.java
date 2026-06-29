@@ -21,7 +21,7 @@ import numericalLibrary.types.Vector3;
  * Implements test methods for {@link SphericalHarmonicGravityModel}.
  * <p>
  * The abstract base class is exercised through its concrete subclass {@link Egm2008}, loaded from the {@code .gfc} file
- * shipped under {@code res/}. When that file is not present (it is large and not tracked in the repository),
+ * shipped under {@code res/gravity/}. When that file is not present (it is large and not tracked in the repository),
  * the tests are skipped instead of failing.
  */
 public class SphericalHarmonicGravityModelTest
@@ -31,8 +31,9 @@ public class SphericalHarmonicGravityModelTest
 	////////////////////////////////////////////////////////////////
 
 	/**
-	 * Path to the {@code res/EGM2008.gfc} file, resolved relative to the location of the compiled test classes so that
-	 * the tests work regardless of the working directory they are launched from. It is {@code null} when the file is absent.
+	 * Path to the {@code res/gravity/EGM2008.gfc} file,
+	 * resolved relative to the working directory,
+	 * or {@code null} when the file is absent.
 	 */
 	private static final String GFC_PATH = locateGfcPath();
 
@@ -161,26 +162,17 @@ public class SphericalHarmonicGravityModelTest
 	////////////////////////////////////////////////////////////////
 
 	/**
-	 * Returns the path to {@code res/EGM2008.gfc}, or {@code null} if it cannot be found.
+	 * Returns the path to {@code res/gravity/EGM2008.gfc}, or {@code null} if it cannot be found.
 	 * <p>
-	 * The {@code res} folder sits at the root of the {@code OpenGeophysicalModelLibrary-java} directory. The tests may be
-	 * launched either from that directory (when it is the project) or from a parent repository that embeds it as a
-	 * submodule, so the file is searched at both relative locations with respect to the working directory.
+	 * The path is relative to the working directory, so the file is found whether the tests run in the standalone library
+	 * (its own {@code res/}) or in a parent repository that embeds it as a submodule (the parent's {@code res/}).
 	 *
-	 * @return	path to {@code res/EGM2008.gfc}, or {@code null} if it cannot be found.
+	 * @return	path to {@code res/gravity/EGM2008.gfc}, or {@code null} if it cannot be found.
 	 */
 	private static String locateGfcPath()
 	{
-		String[] candidatePaths = {
-				"res/EGM2008.gfc",                                       // launched from OpenGeophysicalModelLibrary-java
-				"lib/OpenGeophysicalModelLibrary-java/res/EGM2008.gfc" , // launched from a parent repository
-		};
-		for( String candidatePath : candidatePaths ) {
-			if( Files.exists( Paths.get( candidatePath ) ) ) {
-				return candidatePath;
-			}
-		}
-		return null;
+		String path = "res/gravity/EGM2008.gfc";
+		return Files.exists( Paths.get( path ) ) ? path : null;
 	}
 
 

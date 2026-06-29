@@ -29,7 +29,7 @@ import numericalLibrary.types.Vector3;
 /**
  * Implements test methods for {@link WorldMagneticModel}.
  * <p>
- * The model is loaded from the {@code WMM.COF} file shipped under {@code res/WMM2025COF/}
+ * The model is loaded from the {@code WMM.COF} file shipped under {@code res/magnetic/WMM2025COF/}
  * and validated against every row of the official NCEI {@code WMM2025_TestValues.txt}.
  * Each geodetic test point is converted to a Cartesian position with the {@link Wgs84} ellipsoid.
  * The field is evaluated and rotated into the local north/east/down frame,
@@ -267,25 +267,17 @@ public class WorldMagneticModelTest
 	/**
 	 * Returns the path to a file under the {@code res/WMM2025COF/} folder, or {@code null} if it cannot be found.
 	 * <p>
-	 * The folder is searched relative to the working directory both as the library project root and as a submodule of a
-	 * parent repository, so the tests work regardless of where they are launched from.
+	 * The folder is searched relative to the working directory, so the data is found whether the tests run in the
+	 * standalone library (its own {@code res/}) or in a parent repository that embeds it as a submodule (the parent's
+	 * {@code res/}).
 	 *
-	 * @param fileName	name of the file inside {@code res/WMM2025COF/}.
+	 * @param fileName	name of the file inside {@code res/magnetic/WMM2025COF/}.
 	 * @return	path to the file, or {@code null} if it cannot be found.
 	 */
 	private static String locate( String fileName )
 	{
-		String[] candidateDirectories = {
-				"res/WMM2025COF/",                                       // launched from OpenGeophysicalModelLibrary-java
-				"lib/OpenGeophysicalModelLibrary-java/res/WMM2025COF/" , // launched from a parent repository
-		};
-		for( String candidateDirectory : candidateDirectories ) {
-			Path candidate = Paths.get( candidateDirectory + fileName );
-			if( Files.exists( candidate ) ) {
-				return candidate.toString();
-			}
-		}
-		return null;
+		Path candidate = Paths.get( "res/magnetic/WMM2025COF/" + fileName );
+		return Files.exists( candidate ) ? candidate.toString() : null;
 	}
 	
 }
