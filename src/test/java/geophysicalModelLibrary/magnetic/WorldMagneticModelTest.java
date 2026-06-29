@@ -1,4 +1,4 @@
-package geophysicalModelLibrary.magneticModels;
+package geophysicalModelLibrary.magnetic;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
