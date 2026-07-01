@@ -1,0 +1,132 @@
+package geophysicalModelLibrary.gravity;
+
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+import org.junit.jupiter.api.Test;
+
+
+
+/**
+ * Implements test methods for {@link Egm96}.
+ * <p>
+ * The tests load the EGM96 {@code .gfc} file shipped under {@code res/gravity/}. When that file is not present the tests
+ * are skipped instead of failing.
+ */
+public class Egm96Test
+{
+	////////////////////////////////////////////////////////////////
+	/// PRIVATE CONSTANTS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Path to the {@code res/gravity/EGM96.gfc} file, resolved relative to the working directory, or {@code null} when
+	 * the file is absent.
+	 */
+	private static final String GFC_PATH = locateGfcPath();
+
+	/**
+	 * Tolerance used when comparing loaded coefficients with their reference values.
+	 */
+	private static final double COEFFICIENT_TOLERANCE = 1.0e-20;
+
+
+
+	////////////////////////////////////////////////////////////////
+	/// TEST METHODS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Tests that the header metadata is parsed from the {@code .gfc} file.
+	 */
+	@Test
+	void headerIsParsed() throws IOException
+	{
+		assumeTrue( GFC_PATH != null , "EGM96.gfc not found; skipping." );
+		Egm96 model = Egm96.fromFilePathAndMaximumDegree( GFC_PATH , 4 );
+		assertEquals( "EGM96" , model.modelName() );
+		assertEquals( "tide_free" , model.tideSystem() );
+		assertEquals( 3.986004415e14 , model.gravitationalParameter() , 1.0 );
+		assertEquals( 6378136.3 , model.referenceRadius() , 1.0e-16 );
+		assertEquals( 4 , model.maximumDegree() );
+	}
+
+
+	/**
+	 * Tests that known coefficients are loaded with the expected values, including the {@code C_0^0 = 1} term.
+	 */
+	@Test
+	void knownCoefficientsAreLoaded() throws IOException
+	{
+		assumeTrue( GFC_PATH != null , "EGM96.gfc not found; skipping." );
+		Egm96 model = Egm96.fromFilePathAndMaximumDegree( GFC_PATH , 5 );
+		assertEquals(  1.0                     , model.normalizedC( 0 , 0 ) , COEFFICIENT_TOLERANCE );
+		assertEquals(  0.0                     , model.normalizedS( 0 , 0 ) , COEFFICIENT_TOLERANCE );
+		assertEquals( -0.484165371736e-03      , model.normalizedC( 2 , 0 ) , COEFFICIENT_TOLERANCE );
+		assertEquals(  0.243914352398e-05      , model.normalizedC( 2 , 2 ) , COEFFICIENT_TOLERANCE );
+		assertEquals( -0.140016683654e-05      , model.normalizedS( 2 , 2 ) , COEFFICIENT_TOLERANCE );
+		assertEquals(  0.721072657057e-06      , model.normalizedC( 3 , 3 ) , COEFFICIENT_TOLERANCE );
+		assertEquals(  0.141435626958e-05      , model.normalizedS( 3 , 3 ) , COEFFICIENT_TOLERANCE );
+		assertEquals(  0.539873863789e-06      , model.normalizedC( 4 , 0 ) , COEFFICIENT_TOLERANCE );
+	}
+
+
+	/**
+	 * Tests that the requested maximum degree truncates the loaded model.
+	 */
+	@Test
+	void maximumDegreeTruncatesTheModel() throws IOException
+	{
+		assumeTrue( GFC_PATH != null , "EGM96.gfc not found; skipping." );
+		Egm96 model = Egm96.fromFilePathAndMaximumDegree( GFC_PATH , 17 );
+		assertEquals( 17 , model.maximumDegree() );
+	}
+
+
+	/**
+	 * Tests that loading from a non-existent file raises an {@link IOException}.
+	 */
+	@Test
+	void missingFileRaisesIOException()
+	{
+		assertThrows( IOException.class , () -> Egm96.fromFilePathAndMaximumDegree( "res/does-not-exist.gfc" , 4 ) );
+	}
+
+
+	/**
+	 * Tests that a negative maximum degree is rejected.
+	 */
+	@Test
+	void negativeMaximumDegreeIsRejected()
+	{
+		assumeTrue( GFC_PATH != null , "EGM96.gfc not found; skipping." );
+		assertThrows( IllegalArgumentException.class , () -> Egm96.fromFilePathAndMaximumDegree( GFC_PATH , -1 ) );
+	}
+
+
+
+	////////////////////////////////////////////////////////////////
+	/// PRIVATE METHODS
+	////////////////////////////////////////////////////////////////
+
+	/**
+	 * Returns the path to {@code res/gravity/EGM96.gfc}, or {@code null} if it cannot be found.
+	 * <p>
+	 * The path is relative to the working directory, so the file is found whether the tests run in the standalone library
+	 * (its own {@code res/}) or in a parent repository that embeds it as a submodule (the parent's {@code res/}).
+	 *
+	 * @return	path to {@code res/gravity/EGM96.gfc}, or {@code null} if it cannot be found.
+	 */
+	private static String locateGfcPath()
+	{
+		String path = "res/gravity/EGM96.gfc";
+		return Files.exists( Paths.get( path ) ) ? path : null;
+	}
+
+}
