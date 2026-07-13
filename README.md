@@ -9,7 +9,7 @@ Pure Java, with a small dependency on [OpenNumericalLibrary-java](https://github
 
 | Package | Key types | What it provides |
 |---------|-----------|------------------|
-| `magnetic` | `WorldMagneticModel` | The World Magnetic Model (WMM): Earth's main (core) magnetic field from spherical-harmonic Gauss coefficients (a `.COF` file), including secular variation evaluated at a decimal year. |
+| `magnetic` | `WorldMagneticModel` | The World Magnetic Model (WMM): Earth's main (core) magnetic field (in SI tesla) from spherical-harmonic Gauss coefficients (a `.COF` file, in nT), including secular variation evaluated at a decimal year. |
 | `gravity` | `SphericalHarmonicGravityModel`, `Egm2008`, `Egm96` | Gravitational potential and gravity vector from spherical-harmonic coefficients (a `.gfc` file), plus geoid undulation / height anomaly. `Egm2008` and `Egm96` are the EGM2008 / EGM96 instances. |
 | `atmosphere` | `AtmosphericModel`, `InternationalStandardAtmosphere` | The ISA / U.S. Standard Atmosphere 1976 (seven layers): temperature, pressure, density, speed of sound, and their altitude derivatives. Each layer is itself a usable model. |
 | `terrain` | `ElevationModel`, `EsriAsciiGridElevationModel` | Terrain elevation as a function of latitude/longitude, backed by an ESRI ASCII Grid raster with bilinear interpolation. |

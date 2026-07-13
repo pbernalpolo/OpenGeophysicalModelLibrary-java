@@ -27,7 +27,8 @@ import numericalLibrary.types.Vector3;
  * radius, colatitude, and longitude of the evaluation point,  P_n^m  are the Schmidt semi-normalized associated Legendre
  * functions, and  g_n^m , h_n^m  are the Gauss coefficients [nT].
  * The magnetic field is its negative gradient, {@code B = -grad V},
- * returned in the same Earth-fixed Cartesian frame as the position.
+ * returned in SI tesla in the same Earth-fixed Cartesian frame as the position (the Gauss coefficients are in nT, as
+ * distributed, and are converted to tesla for the returned field).
  * <p>
  * The model is time-dependent: each coefficient comes with a secular-variation rate,
  * so the field is evaluated at the decimal year set with {@link #setDecimalYear(double)}
@@ -55,6 +56,11 @@ public class WorldMagneticModel
 	 * and is distinct from the WGS84 equatorial radius (6378137 m) used for coordinate conversions. [m]
 	 */
 	public static final double GEOMAGNETIC_REFERENCE_RADIUS = 6371200.0;
+
+	/**
+	 * Conversion from the nanotesla of the Gauss coefficients to the SI tesla returned by {@link #getMagneticField()}.
+	 */
+	private static final double NANOTESLA_TO_TESLA = 1.0e-9;
 
 
 
@@ -122,7 +128,7 @@ public class WorldMagneticModel
 
 	/**
 	 * Magnetic field at the last {@link #setPosition(Vector3)} call.
-	 * The same instance is reused on every call. [nT]
+	 * The same instance is reused on every call. [T]
 	 */
 	private final Vector3 magneticField;
 
@@ -323,19 +329,23 @@ public class WorldMagneticModel
 		double bColatitude = ( sinTheta > 0.0 ) ? -sumColatitude / sinTheta : 0.0;
 		double bLongitude = ( sinTheta > 0.0 ) ? -sumLongitude / sinTheta : 0.0;
 		
-		// Rotate the spherical components ( B_r , B_theta , B_lambda ) into the Earth-fixed Cartesian frame.
-		this.magneticField.setX( bRadial * sinTheta * cosLambda + bColatitude * cosTheta * cosLambda - bLongitude * sinLambda );
-		this.magneticField.setY( bRadial * sinTheta * sinLambda + bColatitude * cosTheta * sinLambda + bLongitude * cosLambda );
-		this.magneticField.setZ( bRadial * cosTheta - bColatitude * sinTheta );
+		// Rotate the spherical components ( B_r , B_theta , B_lambda ) into the Earth-fixed Cartesian frame, and convert
+		// from the nanotesla of the Gauss coefficients to SI tesla.
+		double fieldX = bRadial * sinTheta * cosLambda + bColatitude * cosTheta * cosLambda - bLongitude * sinLambda;
+		double fieldY = bRadial * sinTheta * sinLambda + bColatitude * cosTheta * sinLambda + bLongitude * cosLambda;
+		double fieldZ = bRadial * cosTheta - bColatitude * sinTheta;
+		this.magneticField.setX( fieldX * NANOTESLA_TO_TESLA );
+		this.magneticField.setY( fieldY * NANOTESLA_TO_TESLA );
+		this.magneticField.setZ( fieldZ * NANOTESLA_TO_TESLA );
 	}
 
 
 	/**
 	 * Returns the magnetic field at the position set with {@link #setPosition(Vector3)},
 	 * in the same Earth-fixed Cartesian frame as the position.
-	 * The same {@link Vector3} instance is returned on every call. [nT]
+	 * The same {@link Vector3} instance is returned on every call. [T]
 	 *
-	 * @return	magnetic field. [nT]
+	 * @return	magnetic field. [T]
 	 */
 	public Vector3 getMagneticField()
 	{

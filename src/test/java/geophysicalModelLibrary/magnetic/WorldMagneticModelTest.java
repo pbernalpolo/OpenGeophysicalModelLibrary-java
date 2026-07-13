@@ -58,6 +58,12 @@ public class WorldMagneticModelTest
 	 */
 	private static final double TOLERANCE_NANOTESLA = 1.0e-3;
 
+	/**
+	 * The model now returns the field in SI tesla; the official test values are in nanotesla, so the model output is
+	 * scaled by this factor before the comparison.
+	 */
+	private static final double TESLA_TO_NANOTESLA = 1.0e9;
+
 
 
 	////////////////////////////////////////////////////////////////
@@ -124,7 +130,7 @@ public class WorldMagneticModelTest
 	{
 		for( double latitude=-90.0; latitude<=90.0; latitude+=15.0 ) {
 			model.setPosition( positionOnReferenceSphere( latitude , 45.0 ) );
-			double magnitude = model.getMagneticField().norm();
+			double magnitude = model.getMagneticField().norm() * TESLA_TO_NANOTESLA;
 			assertTrue(  20000.0 < magnitude  &&  magnitude < 70000.0  ,
 					"Unexpected field magnitude " + magnitude + " nT at latitude " + latitude );
 		}
@@ -188,9 +194,9 @@ public class WorldMagneticModelTest
 		Vector3 fieldNed = coordinates.getOrientationNedFromBcbf().rotate( model.getMagneticField() );
 
 		String where = "year " + year + " , lat " + testValue[2] + " , lon " + testValue[3];
-		assertEquals( testValue[4] , fieldNed.x() , TOLERANCE_NANOTESLA , "X at " + where );
-		assertEquals( testValue[5] , fieldNed.y() , TOLERANCE_NANOTESLA , "Y at " + where );
-		assertEquals( testValue[6] , fieldNed.z() , TOLERANCE_NANOTESLA , "Z at " + where );
+		assertEquals( testValue[4] , fieldNed.x() * TESLA_TO_NANOTESLA , TOLERANCE_NANOTESLA , "X at " + where );
+		assertEquals( testValue[5] , fieldNed.y() * TESLA_TO_NANOTESLA , TOLERANCE_NANOTESLA , "Y at " + where );
+		assertEquals( testValue[6] , fieldNed.z() * TESLA_TO_NANOTESLA , TOLERANCE_NANOTESLA , "Z at " + where );
 	}
 	
 	
