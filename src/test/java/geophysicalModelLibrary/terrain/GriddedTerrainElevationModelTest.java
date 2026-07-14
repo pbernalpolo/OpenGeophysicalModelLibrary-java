@@ -9,19 +9,22 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 
 
 /**
- * Implements test methods for {@link EsriAsciiGridElevationModel}.
+ * Implements test methods for {@link GriddedTerrainElevationModel}.
  * <p>
- * The interpolation, registration, no-data, and bounds behavior are checked against small hand-written grids, and, when
- * the bundled Copernicus GLO-30 sample is present, the loader is checked against its real header and corner value.
+ * The interpolation, registration, and no-data behavior are checked against small hand-written ASCII grids, and, when
+ * the bundled Copernicus GLO-30 GeoTIFF is present, the GeoTIFF loader is checked end to end against a value verified
+ * with GDAL.
  */
-public class EsriAsciiGridElevationModelTest
+public class GriddedTerrainElevationModelTest
 {
 	////////////////////////////////////////////////////////////////
 	/// PRIVATE CONSTANTS
@@ -42,6 +45,15 @@ public class EsriAsciiGridElevationModelTest
 			"10 11 12\n" +
 			"0 1 2\n";
 
+	/**
+	 * A bundled Copernicus GLO-30 GeoTIFF and a point where GDAL ({@code gdallocationinfo -wgs84}) reports ~404.14 m,
+	 * used to check the GeoTIFF loader end to end (decoding + georeferencing + registration).
+	 */
+	private static final String GEOTIFF_PATH = "res/terrain/output_hh.tif";
+	private static final double GEOTIFF_CHECK_LATITUDE_DEG = 37.969166678;
+	private static final double GEOTIFF_CHECK_LONGITUDE_DEG = -3.335277789;
+	private static final double GEOTIFF_CHECK_ELEVATION = 404.14;
+
 
 
 	////////////////////////////////////////////////////////////////
@@ -54,7 +66,7 @@ public class EsriAsciiGridElevationModelTest
 	@Test
 	void returnsCellValueAtCenters( @TempDir Path directory ) throws IOException
 	{
-		EsriAsciiGridElevationModel model = modelFrom( directory , GRID_3X3 );
+		GriddedTerrainElevationModel model = modelFrom( directory , GRID_3X3 );
 		assertEquals( 0.0 , model.elevationAt( toRadians( 0.5 ) , toRadians( 0.5 ) ) , 1.0e-9 );   // south-west cell
 		assertEquals( 22.0 , model.elevationAt( toRadians( 2.5 ) , toRadians( 2.5 ) ) , 1.0e-9 );  // north-east cell
 		assertEquals( 11.0 , model.elevationAt( toRadians( 1.5 ) , toRadians( 1.5 ) ) , 1.0e-9 );  // center cell
@@ -68,7 +80,7 @@ public class EsriAsciiGridElevationModelTest
 	@Test
 	void interpolatesBilinearly( @TempDir Path directory ) throws IOException
 	{
-		EsriAsciiGridElevationModel model = modelFrom( directory , GRID_3X3 );
+		GriddedTerrainElevationModel model = modelFrom( directory , GRID_3X3 );
 		// Halfway east between the south-west cell (0) and its east neighbor (1).
 		assertEquals( 0.5 , model.elevationAt( toRadians( 0.5 ) , toRadians( 1.0 ) ) , 1.0e-9 );
 		// Halfway north between the south-west cell (0) and the cell above it (10).
@@ -84,7 +96,7 @@ public class EsriAsciiGridElevationModelTest
 	@Test
 	void returnsNaNOutsideCoverage( @TempDir Path directory ) throws IOException
 	{
-		EsriAsciiGridElevationModel model = modelFrom( directory , GRID_3X3 );
+		GriddedTerrainElevationModel model = modelFrom( directory , GRID_3X3 );
 		assertTrue( Double.isNaN( model.elevationAt( toRadians( 0.5 ) , toRadians( 0.0 ) ) ) , "west of the westernmost cell center" );
 		assertTrue( Double.isNaN( model.elevationAt( toRadians( 3.0 ) , toRadians( 0.5 ) ) ) , "north of the northernmost cell center" );
 		assertTrue( Double.isNaN( model.elevationAt( toRadians( 0.5 ) , toRadians( 2.5001 ) ) ) , "just east of the easternmost cell center" );
@@ -112,7 +124,7 @@ public class EsriAsciiGridElevationModelTest
 				"20 21 -9999\n" +
 				"10 11 12\n" +
 				"0 1 2\n";
-		EsriAsciiGridElevationModel model = modelFrom( directory , grid );
+		GriddedTerrainElevationModel model = modelFrom( directory , grid );
 		assertTrue( Double.isNaN( model.elevationAt( toRadians( 2.5 ) , toRadians( 2.5 ) ) ) , "the no-data cell center" );
 		assertTrue( Double.isNaN( model.elevationAt( toRadians( 2.0 ) , toRadians( 2.0 ) ) ) , "a stencil touching the no-data cell" );
 		assertEquals( 10.0 , model.elevationAt( toRadians( 1.5 ) , toRadians( 0.5 ) ) , 1.0e-9 , "a cell center whose stencil avoids the void" );
@@ -132,9 +144,27 @@ public class EsriAsciiGridElevationModelTest
 				"yllcenter 20.0\n" +
 				"cellsize 2.0\n" +
 				"100 200\n";
-		EsriAsciiGridElevationModel model = modelFrom( directory , grid );
+		GriddedTerrainElevationModel model = modelFrom( directory , grid );
 		assertEquals( 100.0 , model.elevationAt( toRadians( 20.0 ) , toRadians( 10.0 ) ) , 1.0e-9 );
 		assertEquals( 150.0 , model.elevationAt( toRadians( 20.0 ) , toRadians( 11.0 ) ) , 1.0e-9 );
+	}
+
+
+	/**
+	 * Tests, when the bundled Copernicus GLO-30 GeoTIFF is present, that the GeoTIFF loader reproduces the elevation
+	 * GDAL reports at a known point. This exercises TIFF decoding and the georeferencing/registration together: an
+	 * off-by-a-cell registration error would move the sampled value by metres and fail this check.
+	 */
+	@Test
+	void loadsGeoTiffAndMatchesGdal() throws IOException
+	{
+		Assumptions.assumeTrue( Files.exists( Paths.get( GEOTIFF_PATH ) ) , "GeoTIFF not present; skipping." );
+		GriddedTerrainElevationModel model = GriddedTerrainElevationModel.fromTiffFilePath( GEOTIFF_PATH );
+		assertTrue( model.columnCount() > 0 && model.rowCount() > 0 , "empty GeoTIFF grid" );
+		double elevation = model.elevationAt(
+				toRadians( GEOTIFF_CHECK_LATITUDE_DEG ) , toRadians( GEOTIFF_CHECK_LONGITUDE_DEG ) );
+		assertEquals( GEOTIFF_CHECK_ELEVATION , elevation , 0.5 ,
+				"GeoTIFF elevation at the GDAL-checked point (off by a cell => registration/decode error)" );
 	}
 
 
@@ -151,11 +181,11 @@ public class EsriAsciiGridElevationModelTest
 	 * @return	model loaded from the written file.
 	 * @throws IOException	if the file cannot be written or parsed.
 	 */
-	private static EsriAsciiGridElevationModel modelFrom( Path directory , String gridText ) throws IOException
+	private static GriddedTerrainElevationModel modelFrom( Path directory , String gridText ) throws IOException
 	{
 		Path file = directory.resolve( "grid.asc" );
 		Files.write( file , gridText.getBytes( StandardCharsets.UTF_8 ) );
-		return EsriAsciiGridElevationModel.fromFilePath( file.toString() );
+		return GriddedTerrainElevationModel.fromAscFilePath( file.toString() );
 	}
 
 }
