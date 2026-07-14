@@ -20,7 +20,7 @@ package geophysicalModelLibrary.terrain;
  * (bare earth versus the visible surface including vegetation and buildings)
  * depend on the underlying dataset and are documented by each implementation.
  */
-public interface ElevationModel
+public interface TerrainElevationModel
 {
 	/**
 	 * Returns the terrain elevation at a geographic position, or {@link Double#NaN} where the model has no data
