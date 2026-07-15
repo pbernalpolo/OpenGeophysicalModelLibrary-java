@@ -193,8 +193,13 @@ public interface GeographicCoordinates
 		MatrixReal L = R_BCBF_ENU.multiply( covarianceEnu.choleskyDecomposition() );
 		return L.multiply( L.transpose() );
 	}
-
-
+	
+	
+	
+	////////////////////////////////////////////////////////////////
+	/// PRIVATE METHODS
+	////////////////////////////////////////////////////////////////
+	
 	/**
 	 * Returns the orientation from Body-Centered; Body-Fixed frame to  Up, East, North.
 	 * 
