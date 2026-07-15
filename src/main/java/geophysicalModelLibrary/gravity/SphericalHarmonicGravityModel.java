@@ -40,6 +40,7 @@ import numericalLibrary.types.Vector3;
  * The position and the returned gravity vector are expressed in the Earth-fixed Cartesian frame in which the coefficients are defined.
  */
 public abstract class SphericalHarmonicGravityModel
+	implements GravityModel
 {
 	////////////////////////////////////////////////////////////////
 	/// PRIVATE VARIABLES
